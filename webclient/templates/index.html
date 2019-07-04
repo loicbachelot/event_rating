@@ -1,0 +1,164 @@
+<html>
+<head>
+    <title>Map tweets</title>
+    <script src='https://api.mapbox.com/mapbox-gl-js/v0.44.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v0.44.0/mapbox-gl.css' rel='stylesheet'/>
+    <style>
+        body { margin:0; padding:0; }
+        #map { position:absolute; top:0; bottom:0; width:100%; }
+    </style>
+</head>
+<body>
+<div id='map'></div>
+<script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    var data_geojson = {
+        "type": "FeatureCollection",
+        "features": []
+    };
+    mapboxgl.accessToken = 'pk.eyJ1IjoiZGF2aWRkZWNhc3RpbGxhIiwiYSI6ImNqZG45Zm1ocjBiNXkyd2tnNGJjYTNvdTkifQ.yPqAnmwEUz-96HZdMrwdPw';
+    var map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/dark-v9',
+        center: [2.349921, 48.853501],
+        zoom: 12
+    });
+
+    map.on('load', function () {
+        map.addSource('point', {
+            "type": "geojson",
+            "data": {
+                "type": "FeatureCollection",
+                "features": []
+            }
+        });
+
+        map.addLayer({
+            id: 'tweets',
+            type: 'heatmap',
+            source: 'point',
+            maxzoom: 15,
+            paint: {
+                // increase weight as diameter breast height increases
+                'heatmap-weight': {
+                    property: 'var',
+                    type: 'exponential',
+                    stops: [
+                        [1006573093551312900, 0.1],
+                        [1006580285803188200, 60]
+                    ]
+                },
+                // increase intensity as zoom level increases
+                'heatmap-intensity': {
+                    stops: [
+                        [11, 1],
+                        [15, 3]
+                    ]
+                },
+                // assign color values be applied to points depending on their density
+                'heatmap-color': [
+                    'interpolate',
+                    ['linear'],
+                    ['heatmap-density'],
+                    0, 'rgba(236,222,239,0)',
+                    0.2, 'rgb(208,209,230)',
+                    0.4, 'rgb(166,189,219)',
+                    0.6, 'rgb(103,169,207)',
+                    0.8, 'rgb(28,144,153)'
+                ],
+                // increase radius as zoom increases
+                'heatmap-radius': {
+                    stops: [
+                        [11, 15],
+                        [15, 20]
+                    ]
+                },
+                // decrease opacity to transition into the circle layer
+                'heatmap-opacity': {
+                    default: 1,
+                    stops: [
+                        [14, 1],
+                        [15, 0]
+                    ]
+                },
+            }
+        }, 'waterway-label');
+
+
+        $("#map").on("new-tweet", function (e) {
+            e.stopPropagation();
+            //console.log(data_geojson);
+            map.getSource('point').setData(data_geojson);
+        });
+
+        // When a click event occurs on a feature in the places layer, open a popup at the
+        // location of the feature, with description HTML from its properties.
+        map.on('click', 'tweets', function (e) {
+            var coordinates = e.features[0].geometry.coordinates.slice();
+            var description = e.features[0].id;
+
+            // Ensure that if the map is zoomed out such that multiple
+            // copies of the feature are visible, the popup appears
+            // over the copy being pointed to.
+            while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+            }
+
+            new mapboxgl.Popup()
+                .setLngLat(coordinates)
+                .setHTML(description)
+                .addTo(map);
+        });
+
+        // Change the cursor to a pointer when the mouse is over the places layer.
+        map.on('mouseenter', 'places', function () {
+            map.getCanvas().style.cursor = 'pointer';
+        });
+
+        // Change it back to a pointer when it leaves.
+        map.on('mouseleave', 'places', function () {
+            map.getCanvas().style.cursor = '';
+        });
+    });
+</script>
+
+<script>
+    var socket = io('http://vps542128.ovh.net:1337');
+
+    socket.on("Tweet", function (data) {
+
+
+        json_data = $.parseJSON(data);
+
+        var feature = {
+            "type": "Feature",
+            "properties": {},
+            "var": json_data.new_val.id,
+            "geometry": json_data.new_val.coordinates
+        };
+        data_geojson.features.push(feature);
+        $("#map").trigger("new-tweet");
+        //console.log(json_data.new_val);
+    });
+    socket.on("oldTweet", function (data) {
+
+
+        json_data = $.parseJSON(data);
+
+        var feature = {
+            "type": "Feature",
+            "properties": {},
+            "var": json_data.id,
+            "geometry": json_data.coordinates
+        };
+        data_geojson.features.push(feature);
+        $("#map").trigger("new-tweet");
+        //console.log(json_data.new_val);
+    });
+    socket.emit("newMap", "map");
+
+
+</script>
+</body>
+</html>
